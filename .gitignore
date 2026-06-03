@@ -1,0 +1,23 @@
+
+# Local dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Build outputs
+dist/
+build/
+.next/
+target/
+coverage/
+staticfiles/
+
+# Logs and local env
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+

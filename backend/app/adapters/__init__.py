@@ -1,0 +1,1 @@
+# Adapters: remote API, crypto

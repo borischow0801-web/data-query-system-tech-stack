@@ -1,0 +1,80 @@
+# 数据查询系统 — 一键编排（MySQL + Redis + 后端 + 前端 Nginx）
+# 使用：cp deploy/env.docker.example .env 后编辑，再执行 docker compose up -d --build
+#
+# 说明：
+# - Redis：当前业务代码未强依赖，已预留 REDIS_URL，后续缓存/限流可直接使用。
+# - 麒麟等国产系统：请安装 Docker CE / Compose 插件，镜像架构与宿主机一致（amd64/arm64）。
+
+services:
+  mysql:
+    image: mysql:8.0
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请配置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-data_query}
+      MYSQL_USER: ${MYSQL_USER:-dq_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请配置 MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      APP_NAME: ${APP_NAME:-数据查询系统}
+      DEBUG: ${DEBUG:-false}
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-dq_user}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-data_query}?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:?请配置 SECRET_KEY}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      EXPORT_STORAGE_PATH: /app/storage/exports
+      QUERY_LOG_INLINE_MAX_BYTES: ${QUERY_LOG_INLINE_MAX_BYTES:-65535}
+      QUERY_LOG_FILE_DIR: /app/storage/query_payloads
+      USE_MOCK_REMOTE: ${USE_MOCK_REMOTE:-true}
+      USE_MOCK_CRYPTO: ${USE_MOCK_CRYPTO:-true}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+    volumes:
+      - ${HOST_LOG_DIR:-./data/logs/backend}:/app/logs
+      - ${HOST_EXPORT_DIR:-./data/exports}:/app/storage/exports
+      - ${HOST_PAYLOAD_DIR:-./data/query_payloads}:/app/storage/query_payloads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  redis_data:
