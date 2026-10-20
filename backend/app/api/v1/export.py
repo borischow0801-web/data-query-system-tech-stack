@@ -74,7 +74,7 @@ def download_export_file(
 def get_export_task(
     db: DbSession,
     current_user: CurrentUser,
-    task_id: str = Path(..., alias="taskId"),
+    task_id: str = Path(...),
 ):
     row = db.query(DqExportTask).filter(DqExportTask.task_no == task_id).first()
     if not row:

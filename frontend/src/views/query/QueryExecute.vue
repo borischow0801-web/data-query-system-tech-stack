@@ -110,7 +110,7 @@ import DetailSectionPanel from "@/components/DetailSectionPanel.vue";
 import { listInterfaces } from "@/api/interfaces";
 import { getQueryFormSchema } from "@/api/params";
 import { executeQuery } from "@/api/query";
-import { createExportTask } from "@/api/export";
+import { createExportTask, downloadExportFile } from "@/api/export";
 
 const interfaces = ref<any[]>([]);
 const schema = ref<any | null>(null);
@@ -286,8 +286,8 @@ async function onServerExport(t: "csv" | "xlsx") {
     const r: any = await createExportTask({ queryRecordId: lastMeta.queryRecordId, exportType: t });
     const url = r?.fileUrl || r?.data?.fileUrl;
     if (url) {
-      ElMessage.success("导出完成，正在下载");
-      window.open(url, "_blank");
+      await downloadExportFile(url, r?.fileName || r?.data?.fileName || `export.${t}`);
+      ElMessage.success("导出完成");
     } else {
       ElMessage.success("导出任务已创建");
     }

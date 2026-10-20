@@ -8,7 +8,7 @@
     <el-card shadow="never" class="filter-card">
       <el-form :inline="true" :model="query">
         <el-form-item label="接口编码">
-          <el-input v-model="query.interfaceCode" clearable placeholder="模糊留空即全部" style="width: 200px" />
+          <el-input v-model="query.interfaceCode" clearable placeholder="精确匹配，留空即全部" style="width: 200px" />
         </el-form-item>
         <el-form-item label="结果">
           <el-select v-model="query.successFlag" clearable placeholder="全部" style="width: 120px">
@@ -140,7 +140,7 @@
 import { reactive, ref, watch, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { listQueryHistory, getQueryHistoryDetail, getQueryHistoryStructuredView } from "@/api/query";
-import { createExportTask } from "@/api/export";
+import { createExportTask, downloadExportFile } from "@/api/export";
 import AnalysisPanel from "@/components/AnalysisPanel.vue";
 import DetailSectionPanel from "@/components/DetailSectionPanel.vue";
 import ResultVxeGrid from "@/components/ResultVxeGrid.vue";
@@ -220,6 +220,9 @@ async function loadFullPayload(kind: string) {
       headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` }
     });
     const json = await resp.json();
+    if (!resp.ok || json?.success === false) {
+      throw new Error(json?.message || "加载失败");
+    }
     const text = json?.data?.text ?? "";
     fullText.value = text || "(空)";
     fullTitle.value = `完整内容：${kind}`;
@@ -239,7 +242,7 @@ async function exportFromHistory(t: "csv" | "xlsx") {
   try {
     const r: any = await createExportTask({ queryRecordId: detail.value.id, exportType: t });
     const url = r?.fileUrl || r?.data?.fileUrl;
-    if (url) window.open(url, "_blank");
+    if (url) await downloadExportFile(url, r?.fileName || r?.data?.fileName || `export.${t}`);
     ElMessage.success("导出完成");
   } catch (e: any) {
     ElMessage.error(e?.message || "导出失败");

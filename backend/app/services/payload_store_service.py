@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import os
+import json
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from app.core.config import get_settings
+from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logger import logger
 
 
@@ -20,6 +24,13 @@ class StoredPayload:
     store_error: str | None = None
 
 
+@dataclass
+class LoadedPayload:
+    text: str
+    source: str
+    path: str | None = None
+
+
 class PayloadStoreService:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -29,6 +40,49 @@ class PayloadStoreService:
 
     def _bytes_len(self, s: str) -> int:
         return len(s.encode("utf-8", errors="replace"))
+
+    def load_record_text(self, record: Any, kind: str) -> LoadedPayload:
+        fields = {
+            "request_plain": "request_plain_text",
+            "request_cipher": "request_cipher_text",
+            "response_raw": "response_raw_text",
+            "response_plain": "response_plain_text",
+        }
+        if kind not in fields:
+            raise ValidationError("kind 不支持")
+        text = getattr(record, fields[kind], None)
+        if text is not None:
+            return LoadedPayload(text=text, source="DB")
+
+        # A record stores one representative path; select only the requested sibling.
+        directories = []
+        stored_path = getattr(record, "payload_store_path", None)
+        if stored_path:
+            directories.append(Path(stored_path).parent)
+        base = Path(self.settings.query_log_file_dir or "./storage/query_payloads").absolute()
+        for field in ("created_at", "started_at"):
+            dt = getattr(record, field, None)
+            if dt:
+                directories.append(base / dt.strftime("%Y%m%d"))
+        directories.append(base)
+        for directory in dict.fromkeys(directories):
+            for ext in ("json", "txt"):
+                path = directory / f"{record.trace_id}_{kind}.{ext}"
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    continue
+                except (OSError, UnicodeError) as exc:
+                    raise ValidationError(f"完整报文读取失败：{kind}") from exc
+                return LoadedPayload(text=text, source="FILE", path=str(path))
+        raise NotFoundError(f"未找到完整报文：{kind}")
+
+    def load_record_json(self, record: Any) -> Any:
+        payload = self.load_record_text(record, "response_plain")
+        try:
+            return json.loads(payload.text)
+        except (ValueError, TypeError) as exc:
+            raise ValidationError("解密响应不是有效 JSON，无法回放或导出") from exc
 
     def store_text(
         self,

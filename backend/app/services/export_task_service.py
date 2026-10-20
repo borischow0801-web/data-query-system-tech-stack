@@ -14,6 +14,7 @@ from app.models.export_task import DqExportTask
 from app.models.interface_config import DqInterfaceConfig
 from app.models.query_record import DqQueryRecord
 from app.services.result_parser_service import ResultParserService
+from app.services.payload_store_service import PayloadStoreService
 
 
 def _ensure_dir(p: str) -> None:
@@ -30,12 +31,7 @@ def _parse_record_to_list(
     )
     if not iface:
         raise NotFoundError("接口配置不存在")
-    try:
-        import json
-
-        decrypted_json = json.loads(record.response_plain_text) if record.response_plain_text else {}
-    except Exception:
-        decrypted_json = record.response_plain_text or {}
+    decrypted_json = PayloadStoreService().load_record_json(record)
     parsed = ResultParserService().parse(iface, decrypted_json, request_params={})
     rows = parsed.list
     if not rows:

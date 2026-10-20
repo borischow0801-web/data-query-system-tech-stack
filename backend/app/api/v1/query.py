@@ -1,5 +1,4 @@
 """查询执行与历史：POST /api/query/execute, GET /api/query/history, GET /api/query/history/{id}"""
-import json
 from datetime import datetime
 from typing import Optional
 
@@ -12,6 +11,7 @@ from app.core.response import success_response
 from app.services.query_executor_service import QueryExecutorService
 from app.services.result_parser_service import ResultParserService
 from app.services.analysis_service import ResultAnalysisService
+from app.services.payload_store_service import PayloadStoreService
 
 router = APIRouter()
 
@@ -152,54 +152,16 @@ def query_history_payload(
     kind: str = Query("response_raw"),  # response_raw / response_plain / request_plain / request_cipher
 ):
     from app.models.query_record import DqQueryRecord
-    import os
 
     r = db.query(DqQueryRecord).filter(DqQueryRecord.id == id).first()
     if not r:
         return success_response(data=None, message="记录不存在")
 
-    # 1) 优先读 DB full
-    field_map = {
-        "response_raw": "response_raw_text",
-        "response_plain": "response_plain_text",
-        "request_plain": "request_plain_text",
-        "request_cipher": "request_cipher_text",
-    }
-    if kind not in field_map:
-        return success_response(data=None, message="kind 不支持")
-    db_text = getattr(r, field_map[kind], None)
-    if db_text:
-        return success_response(data={"kind": kind, "source": "DB", "text": db_text})
-
-    # 2) DB 没有则尝试读文件
-    # payload_store_path 记录的是某个文件路径（最小实现）；若不存在则按规则推断
-    candidates = []
-    if getattr(r, "payload_store_path", None):
-        candidates.append(r.payload_store_path)
-        # 如果存的是 response_raw 文件，尝试替换成其它 kind
-        candidates.append(str(r.payload_store_path).replace("response_raw", kind))
-        candidates.append(str(r.payload_store_path).replace("response_plain", kind))
-        candidates.append(str(r.payload_store_path).replace("request_plain", kind))
-        candidates.append(str(r.payload_store_path).replace("request_cipher", kind))
-
-    # 兜底：按默认命名推断
-    from app.core.config import get_settings
-    settings = get_settings()
-    base_dir = os.path.abspath(settings.query_log_file_dir or "./storage/query_payloads")
-    # 不知道日期目录时只能做最小推断：直接拼 base_dir/{traceId}_{kind}.*
-    candidates.append(os.path.join(base_dir, f"{r.trace_id}_{kind}.json"))
-    candidates.append(os.path.join(base_dir, f"{r.trace_id}_{kind}.txt"))
-
-    for p in candidates:
-        if p and os.path.exists(p) and os.path.isfile(p):
-            try:
-                with open(p, "r", encoding="utf-8", errors="replace") as f:
-                    txt = f.read()
-                return success_response(data={"kind": kind, "source": "FILE", "path": p, "text": txt})
-            except Exception as e:
-                return success_response(data={"kind": kind, "source": "FILE", "path": p, "error": str(e)}, message="读取失败")
-
-    return success_response(data={"kind": kind, "source": None, "text": None}, message="未找到完整 payload")
+    payload = PayloadStoreService().load_record_text(r, kind)
+    data = {"kind": kind, "source": payload.source, "text": payload.text}
+    if payload.path:
+        data["path"] = payload.path
+    return success_response(data=data)
 
 
 @router.get("/history/{id}/structured-view")
@@ -226,14 +188,7 @@ def query_history_structured_view(
     if not iface:
         raise NotFoundError("接口配置不存在")
 
-    decrypted: dict | list | str | None = None
-    if r.response_plain_text:
-        try:
-            decrypted = json.loads(r.response_plain_text)
-        except Exception:
-            decrypted = r.response_plain_text
-    else:
-        decrypted = {}
+    decrypted = PayloadStoreService().load_record_json(r)
 
     parsed = ResultParserService().parse(iface, decrypted, {})
     analysis = ResultAnalysisService().analyze(

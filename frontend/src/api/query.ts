@@ -12,7 +12,16 @@ export function listQueryHistory(params: {
   startTime?: string;
   endTime?: string;
 }) {
-  return http.get("/api/query/history", { params });
+  return http.get("/api/query/history", {
+    params: {
+      page: params.page,
+      page_size: params.pageSize,
+      interface_code: params.interfaceCode,
+      success_flag: params.successFlag,
+      start_time: params.startTime,
+      end_time: params.endTime
+    }
+  });
 }
 
 export function getQueryHistoryDetail(id: number) {

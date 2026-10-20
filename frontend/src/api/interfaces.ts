@@ -7,7 +7,15 @@ export function listInterfaces(params: {
   interfaceName?: string;
   status?: number | null;
 }) {
-  return http.get("/api/interfaces", { params });
+  return http.get("/api/interfaces", {
+    params: {
+      page: params.page,
+      page_size: params.pageSize,
+      interface_code: params.interfaceCode,
+      interface_name: params.interfaceName,
+      status: params.status
+    }
+  });
 }
 
 export function getInterfaceDetail(id: number) {
